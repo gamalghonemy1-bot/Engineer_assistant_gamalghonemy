@@ -1,0 +1,72 @@
+name: Build APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Arrange files and generate Android project
+        run: |
+          echo "WORKFLOW VERSION 5"
+          mkdir -p lib assets/fonts
+          for f in Amiri-Regular Amiri-Bold; do
+            curl -fsSL -o assets/fonts/$f.ttf https://github.com/google/fonts/raw/main/ofl/amiri/$f.ttf || curl -fsSL -o assets/fonts/$f.ttf https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/amiri/$f.ttf
+            test $(stat -c%s assets/fonts/$f.ttf) -gt 50000
+          done
+          ls -la assets/fonts
+          mv -f main.dart lib/main.dart
+          flutter create --platforms=android --project-name electrical_assistant --org com.eea _gen
+          cp -r _gen/android android
+          rm -rf _gen
+          python3 - <<'PY'
+          import re,glob
+          p='android/app/src/main/AndroidManifest.xml'
+          s=open(p,encoding='utf-8').read()
+          perm='<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.INTERNET"/>\n    <queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>\n    <application'
+          s=s.replace('<application',perm,1)
+          s=s.replace('android:label="electrical_assistant"','android:label="مساعد كهرباء"')
+          open(p,'w',encoding='utf-8').write(s)
+          for g in glob.glob('android/app/build.gradle*'):
+              t=open(g,encoding='utf-8').read()
+              t=re.sub(r'compileSdk(\s*=\s*|\s+)flutter\.compileSdkVersion','compileSdk = 36',t)
+              t=re.sub(r'minSdk(\s*=\s*|\s+)flutter\.minSdkVersion','minSdk = 24',t)
+              open(g,'w',encoding='utf-8').write(t)
+          open('android/gradle.properties','a').write('\nandroid.suppressUnsupportedCompileSdk=36\n')
+          PY
+          grep -n "compileSdk\|minSdk" android/app/build.gradle*
+      - run: flutter pub get
+      - name: Raise compileSdk of plugins to 36
+        run: |
+          python3 - <<'PY'
+          import re,glob,os
+          root=os.environ.get('PUB_CACHE') or os.path.expanduser('~/.pub-cache')
+          def fix(m):
+              return m.group(1)+m.group(2)+('36' if int(m.group(3))<36 else m.group(3))
+          n=0
+          for g in glob.glob(root+'/hosted/*/*/android/build.gradle*'):
+              t=open(g,encoding='utf-8').read()
+              u=re.sub(r'(compileSdk(?:Version)?)(\s*=\s*|\s+)(\d+)',fix,t)
+              if u!=t:
+                  open(g,'w',encoding='utf-8').write(u)
+                  n+=1
+                  print('patched',g)
+          print('patched files:',n)
+          PY
+      - run: flutter build apk --release
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: APK v${{ github.run_number }}
+          files: build/app/outputs/flutter-apk/app-release.apk
