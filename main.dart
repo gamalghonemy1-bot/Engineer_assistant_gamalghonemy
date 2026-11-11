@@ -603,7 +603,7 @@ Future<Uint8List> buildPdf(Proj p, String ex, List<Map<String, dynamic>> rows, U
       ),
       pw.SizedBox(height: 34),
       pw.Row(
-        textDirection: pw.TextDirection.rtl,
+        
         mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
         children: [sigBox('المشرف'), sigBox('مهندس الكهرباء', img: sig, name: eng), sigBox('رئيس القسم')],
       ),
